@@ -57,10 +57,14 @@ As interfaces `veth` do Linux possuem suporte completo e nativo a `BPF_F_TEST_XD
 
 ---
 
-### Modo 2: Teste em Interface Física (`enp3s0` / `eth0`)
+### Modo 2: Teste em Interface Física (`enp1s0np1` / Fibra Ótica)
 
 ```bash
-sudo ./bin/xdp_ping -i enp3s0 -d 150.164.2.81 -m e0:d5:5e:84:d3:7c -p 9999 -c 10
+# Ping Padrão ICMP Echo (igual ao comando ping):
+sudo ./bin/xdp_ping -i enp1s0np1 -d 192.168.0.2 -c 10
+
+# Ou em modo UDP na porta 9999:
+sudo ./bin/xdp_ping -i enp1s0np1 -d 192.168.0.2 -u -p 9999 -c 10
 ```
 
 ---
@@ -69,15 +73,16 @@ sudo ./bin/xdp_ping -i enp3s0 -d 150.164.2.81 -m e0:d5:5e:84:d3:7c -p 9999 -c 10
 
 | Opção | Descrição | Padrão |
 | :--- | :--- | :--- |
-| `-i <ifname>` | Nome da interface de rede | `enp3s0` |
-| `-d <ip>` | Endereço IPv4 de destino | `150.164.2.81` |
-| `-s <ip>` | Endereço IPv4 de origem | Auto-detectado |
-| `-m <mac>` | Endereço MAC de destino | Broadcast (`ff:ff:...`) |
-| `-p <port>` | Porta UDP de destino | `9999` |
+| `-i <ifname>` | Nome da interface de rede | `enp1s0np1` |
+| `-d <ip>` | Endereço IPv4 de destino | `192.168.0.2` |
+| `-s <ip>` | Endereço IPv4 de origem | Auto-detectado da interface |
+| `-m <mac>` | Endereço MAC de destino | Auto-resolvido via ARP (`/proc/net/arp`) |
+| `-u` | Usa protocolo UDP em vez do padrão ICMP Echo Ping | ICMP Echo Ping |
+| `-p <port>` | Porta UDP de destino (apenas com `-u`) | `9999` |
 | `-c <count>` | Quantidade de pacotes (`0` = infinito) | `10` |
 | `-r <repeat>` | Repetições por chamada de `test_run` | `1` |
 | `-t <ms>` | Intervalo entre disparos em ms | `1000` |
-| `-b <msg>` | Mensagem de payload UDP customizada | `"PING from XDP BPF_TEST"` |
+| `-b <msg>` | Mensagem de payload customizada (modo UDP) | `"PING from XDP BPF_TEST"` |
 | `-h` | Exibe o menu de ajuda | - |
 
 ---
@@ -85,10 +90,12 @@ sudo ./bin/xdp_ping -i enp3s0 -d 150.164.2.81 -m e0:d5:5e:84:d3:7c -p 9999 -c 10
 ## 🔬 Como Funciona
 
 1. **Kernel XDP (`src/xdp_ping.bpf.c`)**:
-   - Programa minimalista que retorna `XDP_TX`.
-   - Quando acionado com `BPF_F_TEST_XDP_LIVE_FRAMES`, o kernel faz a reflexão do frame e o entrega na fila TX da interface.
+   - Programa XDP acoplado no modo **DRIVER / NATIVE** (`XDP_FLAGS_DRV_MODE`).
+   - Retorna `XDP_TX` para reflexão e transmissão direta pela fila de TX do driver de rede.
 
 2. **Userspace (`src/xdp_ping.c`)**:
-   - Constrói o frame completo (Ethernet + IPv4 + UDP + Payload).
-   - Calcula os checksums de IPv4 e UDP.
-   - Invoca `bpf_prog_test_run_opts(prog_fd, &topts)` com `BPF_F_TEST_XDP_LIVE_FRAMES`.
+   - Resolve automaticamente o endereço MAC de destino através da tabela ARP do sistema.
+   - Anexa o programa BPF à interface de rede usando o modo **DRIVER** (`bpf_xdp_attach` com `XDP_FLAGS_DRV_MODE`) e confirma via `bpf_xdp_query_id`.
+   - Constrói o frame completo idêntico ao `ping` do Linux (Ethernet + IPv4 + ICMP Echo Request + Timestamp + Payload).
+   - Injeta os frames no hook XDP via `bpf_prog_test_run_opts` com a flag `BPF_F_TEST_XDP_LIVE_FRAMES`.
+   - Desanexa o programa XDP de forma limpa ao finalizar (via `bpf_xdp_detach`).
