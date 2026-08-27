@@ -2,7 +2,7 @@ CLANG ?= clang
 BPFTOOL ?= bpftool
 
 CFLAGS ?= -O2 -g -Wall -I./include -I./obj
-BPF_CFLAGS ?= -O2 -g -target bpf -I./include
+BPF_CFLAGS ?= -O2 -g -target bpf -I./include -I/usr/include/$(shell uname -m)-linux-gnu
 
 LIBBPF_LIBS ?= -lbpf -lelf -lz
 
