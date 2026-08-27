@@ -2,17 +2,20 @@
 #define XDP_PING_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
 #include <netinet/udp.h>
 #include <net/ethernet.h>
 #include <arpa/inet.h>
+#include <linux/if_link.h>
 
 #ifndef BPF_F_TEST_XDP_LIVE_FRAMES
 #define BPF_F_TEST_XDP_LIVE_FRAMES (1U << 1)
 #endif
 
-#define DEFAULT_IFNAME      "enp3s0"
-#define DEFAULT_DST_IP      "150.164.2.81"
+#define DEFAULT_IFNAME      "enp1s0np1"
+#define DEFAULT_DST_IP      "192.168.0.2"
 #define DEFAULT_DST_PORT    9999
 #define DEFAULT_SRC_PORT    12345
 #define DEFAULT_INTERVAL_MS 1000
@@ -25,13 +28,27 @@ static inline uint16_t csum_fold_u16(uint32_t sum) {
     return ~((uint16_t)sum);
 }
 
-static inline uint16_t calc_ipv4_csum(struct iphdr *ip) {
-    uint16_t *ptr = (uint16_t *)ip;
+static inline uint16_t calc_csum(const void *data, size_t len) {
+    const uint16_t *ptr = (const uint16_t *)data;
     uint32_t sum = 0;
-    ip->check = 0;
-    for (size_t i = 0; i < (sizeof(struct iphdr) / 2); i++)
+    while (len > 1) {
         sum += *ptr++;
+        len -= 2;
+    }
+    if (len == 1) {
+        sum += *(const uint8_t *)ptr;
+    }
     return csum_fold_u16(sum);
+}
+
+static inline uint16_t calc_ipv4_csum(struct iphdr *ip) {
+    ip->check = 0;
+    return calc_csum(ip, sizeof(struct iphdr));
+}
+
+static inline uint16_t calc_icmp_csum(struct icmphdr *icmp, size_t total_icmp_len) {
+    icmp->checksum = 0;
+    return calc_csum(icmp, total_icmp_len);
 }
 
 static inline uint16_t calc_udp_csum(struct iphdr *ip, struct udphdr *udp, const uint8_t *payload, size_t payload_len) {
